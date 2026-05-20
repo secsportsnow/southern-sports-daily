@@ -1,333 +1,544 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-const SPORTS = ["Football", "Basketball", "Baseball", "Soccer", "Hockey", "Volleyball", "Wrestling", "Lacrosse"];
-const TONES = ["Breaking news", "Analytical recap", "Hype & excitement", "Human interest angle"];
+// ─── SPORT COLORS ────────────────────────────────────────────────
+const SPORT_COLORS = {
+  Football: "#e8681a",
+  Basketball: "#c0392b",
+  Baseball: "#2980b9",
+  Soccer: "#27ae60",
+  Hockey: "#8e44ad",
+  Other: "#7f8c8d",
+};
 
-async function generateArticle({ homeTeam, awayTeam, homeScore, awayScore, sport, tone, keyMoments }) {
+const SPORTS_NAV = ["All", "Football", "Basketball", "Baseball", "Soccer", "Hockey"];
+
+// ─── SAMPLE SEED ARTICLES (shown before any AI articles generate) ─
+const SEED_ARTICLES = [
+  {
+    id: "seed-1",
+    headline: "Alabama Edges LSU in Overtime Thriller, 34–31",
+    sport: "Football",
+    body: "In a game that had fans on the edge of their seats from kickoff to the final whistle, the Alabama Crimson Tide survived a furious late rally from LSU to escape Tiger Stadium with a 34–31 overtime victory Saturday night.\n\nThe Tide trailed by seven entering the fourth quarter before quarterback Jalen Milroe orchestrated a stunning 12-play, 75-yard drive capped by a one-yard touchdown plunge with 47 seconds remaining. In overtime, kicker Will Reichard split the uprights from 42 yards out to seal the win.\n\n\"Our guys showed tremendous heart tonight,\" Alabama head coach Kalen DeBoer said. \"This is exactly the kind of game that defines a season.\"\n\nThe victory keeps Alabama firmly in the College Football Playoff picture with a 7-1 record, while LSU falls to 6-2 and faces an uphill battle in the SEC West.",
+    timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    homeTeam: "LSU", awayTeam: "Alabama", homeScore: "31", awayScore: "34",
+  },
+  {
+    id: "seed-2",
+    headline: "Georgia Dominates Ole Miss 42–17 Behind Historic Rushing Performance",
+    sport: "Football",
+    body: "The Georgia Bulldogs put on a rushing clinic in Oxford on Saturday, piling up 312 yards on the ground in a dominant 42–17 victory over Ole Miss that reinforced their status as the SEC's most complete team.\n\nRunning back Trevor Etienne was the star of the show, carrying 24 times for 178 yards and three touchdowns. The Bulldogs' offensive line overwhelmed an Ole Miss front that came in ranked fifth in the conference in run defense.\n\n\"We wanted to establish the run early and never let them off the hook,\" said Georgia coach Kirby Smart. \"The offensive line was just dominant tonight.\"\n\nGeorgia improves to 8-0 and remains atop the SEC East standings.",
+    timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+    homeTeam: "Ole Miss", awayTeam: "Georgia", homeScore: "17", awayScore: "42",
+  },
+  {
+    id: "seed-3",
+    headline: "Kentucky Upsets Tennessee in SEC Basketball Rivalry Renewed",
+    sport: "Basketball",
+    body: "In a performance that electrified Rupp Arena, the Kentucky Wildcats stunned No. 4 Tennessee 78–71 Saturday afternoon in a game that could reshape the SEC standings heading into February.\n\nSophomore guard Otega Oweh led all scorers with 26 points on 9-of-16 shooting, including a pair of clutch three-pointers in the final four minutes that effectively iced the game for the home team.\n\n\"This is what Kentucky basketball is about,\" Wildcats head coach Mark Pope said. \"The crowd was incredible, and our guys fed off that energy all night.\"",
+    timestamp: new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString(),
+    homeTeam: "Kentucky", awayTeam: "Tennessee", homeScore: "78", awayScore: "71",
+  },
+  {
+    id: "seed-4",
+    headline: "Florida Baseball Walks Off Arkansas in 10th to Claim Series",
+    sport: "Baseball",
+    body: "A bases-loaded single by designated hitter Cade Kurland in the bottom of the tenth inning gave Florida a dramatic 5–4 walk-off victory over Arkansas on Sunday, completing a come-from-behind series win at Condron Family Ballpark.\n\nThe Gators trailed 4–2 entering the eighth inning before rallying to tie the game on a two-run homer by outfielder Jac Caglianone, his team-leading 14th of the season. Florida's bullpen held firm through two scoreless extra innings to set the stage for Kurland's heroics.",
+    timestamp: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    homeTeam: "Florida", awayTeam: "Arkansas", homeScore: "5", awayScore: "4",
+  },
+  {
+    id: "seed-5",
+    headline: "Tennessee Soccer Claims SEC Tournament Title with Shutdown Defense",
+    sport: "Soccer",
+    body: "The Tennessee Volunteers claimed their first SEC Tournament championship in program history with a methodical 1–0 victory over Arkansas in Sunday's final, riding a stellar defensive performance and a second-half goal from forward Cece Kizer.\n\nTennessee's back line allowed just two shots on goal across the entire match, suffocating an Arkansas attack that had scored 11 goals in its previous three tournament games.",
+    timestamp: new Date(Date.now() - 30 * 60 * 60 * 1000).toISOString(),
+    homeTeam: "Tennessee", awayTeam: "Arkansas", homeScore: "1", awayScore: "0",
+  },
+];
+
+// ─── FETCH LIVE SCORES via fetch_sports_data approach (ESPN public API) ─────
+async function fetchLiveScores(sport) {
+  const sportMap = {
+    Football: "football/college-football",
+    Basketball: "basketball/mens-college-basketball",
+    Baseball: "baseball/college-baseball",
+    Soccer: "soccer/usa.ncaa.w",
+  };
+  const endpoint = sportMap[sport] || "football/college-football";
+  try {
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/${endpoint}/scoreboard`
+    );
+    const data = await res.json();
+    return (data.events || []).filter(
+      (e) => e.status?.type?.completed === true
+    ).slice(0, 5);
+  } catch {
+    return [];
+  }
+}
+
+// ─── GENERATE ARTICLE VIA CLAUDE API ─────────────────────────────
+async function generateArticle(gameData, sport) {
+  const { homeTeam, awayTeam, homeScore, awayScore } = gameData;
   const winner = parseInt(homeScore) > parseInt(awayScore) ? homeTeam : awayTeam;
   const loser = winner === homeTeam ? awayTeam : homeTeam;
   const winScore = Math.max(parseInt(homeScore), parseInt(awayScore));
   const lossScore = Math.min(parseInt(homeScore), parseInt(awayScore));
   const isClose = Math.abs(parseInt(homeScore) - parseInt(awayScore)) <= 3;
 
-  const prompt = `You are a college sports journalist. Write a compelling, publication-ready article about this game result.
+  const prompt = `You are a college sports journalist for Southern Sports Daily. Write a compelling news article about this game.
 
-Game Details:
-- Sport: ${sport}
-- Home team: ${homeTeam} (${homeScore})
-- Away team: ${awayTeam} (${awayScore})
-- Winner: ${winner} (${winScore}-${lossScore})
-- Close game: ${isClose ? "Yes, very close finish" : "No, fairly decisive"}
-- Key moments/notes: ${keyMoments || "None provided"}
-- Tone: ${tone}
+Game: ${sport} — ${homeTeam} ${homeScore}, ${awayTeam} ${awayScore}
+Winner: ${winner} (${winScore}–${lossScore}). Close game: ${isClose ? "yes, very close" : "no, decisive"}.
 
-Write a full article with:
-1. A punchy headline (prefix with "HEADLINE: ")
-2. A compelling lede paragraph
-3. 3-4 body paragraphs covering the game flow, key moments, and implications
-4. A closing quote (you can invent a plausible coach/player quote)
+Write:
+1. A punchy headline (prefix "HEADLINE: ")
+2. 4 paragraphs: dramatic lede, game flow, key moment, closing quote (invent a plausible one)
 
-Keep it around 350-450 words. Write it like a real sports journalist would — vivid, energetic, and informative.`;
+~350 words. Vivid, energetic sports journalism voice.`;
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }]
-    })
+      messages: [{ role: "user", content: prompt }],
+    }),
   });
-
-  const data = await response.json();
-  const text = data.content.map(b => b.text || "").join("");
+  const data = await res.json();
+  const text = data.content?.map((b) => b.text || "").join("") || "";
   const headlineMatch = text.match(/HEADLINE:\s*(.+)/);
-  const headline = headlineMatch ? headlineMatch[1].trim() : `${winner} Defeats ${loser} ${winScore}-${lossScore}`;
+  const headline = headlineMatch
+    ? headlineMatch[1].trim()
+    : `${winner} Defeats ${loser} ${winScore}–${lossScore}`;
   const body = text.replace(/HEADLINE:\s*.+\n?/, "").trim();
   return { headline, body };
 }
 
-export default function App() {
-  const [form, setForm] = useState({
-    homeTeam: "", awayTeam: "", homeScore: "", awayScore: "",
-    sport: "Football", tone: "Breaking news", keyMoments: ""
-  });
-  const [article, setArticle] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [copied, setCopied] = useState(false);
+// ─── HELPERS ─────────────────────────────────────────────────────
+function timeAgo(iso) {
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const handleGenerate = async () => {
-    if (!form.homeTeam || !form.awayTeam || !form.homeScore || !form.awayScore) {
-      setError("Please fill in both team names and scores.");
-      return;
-    }
-    setError("");
-    setLoading(true);
-    setArticle(null);
-    try {
-      const result = await generateArticle(form);
-      setArticle(result);
-    } catch (e) {
-      setError("Something went wrong generating the article. Please try again.");
-    }
-    setLoading(false);
-  };
-
-  const handleCopy = () => {
-    if (!article) return;
-    navigator.clipboard.writeText(`${article.headline}\n\n${article.body}`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-
+// ─── COMPONENTS ──────────────────────────────────────────────────
+function SportTag({ sport }) {
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "#0a0a0f",
-      fontFamily: "'Georgia', serif",
-      color: "#e8e0d0",
-      position: "relative",
-      overflow: "hidden"
-    }}>
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0,
-        background: "radial-gradient(ellipse 80% 60% at 50% -10%, #1a2a1a 0%, #0a0a0f 60%)",
-        pointerEvents: "none"
-      }} />
-      <div style={{
-        position: "fixed", inset: 0, zIndex: 0, opacity: 0.03,
-        backgroundImage: "repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px), repeating-linear-gradient(90deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px)",
-        pointerEvents: "none"
-      }} />
+    <span style={{
+      fontSize: 10, fontWeight: 800, letterSpacing: 2,
+      textTransform: "uppercase", padding: "3px 8px",
+      background: SPORT_COLORS[sport] || "#555",
+      color: "#fff", borderRadius: 2,
+    }}>{sport}</span>
+  );
+}
 
-      <div style={{ position: "relative", zIndex: 1, maxWidth: 860, margin: "0 auto", padding: "0 24px 80px" }}>
-
-        <header style={{ textAlign: "center", padding: "48px 0 32px", borderBottom: "1px solid #2a2a2a" }}>
-          <div style={{ fontSize: 11, letterSpacing: 6, color: "#6a9955", textTransform: "uppercase", marginBottom: 12 }}>
-            AI-Powered Sports Journalism
-          </div>
-          <h1 style={{
-            fontSize: "clamp(2.4rem, 7vw, 4.2rem)",
-            fontWeight: 900,
-            letterSpacing: "-0.03em",
-            margin: 0,
-            lineHeight: 1,
-            color: "#f0e8d8",
-            textShadow: "0 0 60px rgba(106,153,85,0.15)"
-          }}>
-            SOUTHERN SPORTS<br />
-            <span style={{ color: "#6a9955" }}>DAILY</span>
-          </h1>
-          <div style={{ marginTop: 14, fontSize: 12, color: "#555", letterSpacing: 3, textTransform: "uppercase" }}>
-            {today}
-          </div>
-        </header>
-
-        <div style={{
-          margin: "24px 0",
-          background: "#111",
-          border: "1px dashed #2a2a2a",
-          borderRadius: 4,
-          height: 90,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#333", fontSize: 12, letterSpacing: 2, textTransform: "uppercase"
-        }}>
-          [ Advertisement — 728×90 Leaderboard ]
-        </div>
-
-        <div style={{
-          background: "#111318",
-          border: "1px solid #1e2128",
-          borderRadius: 8,
-          padding: "32px",
-          marginBottom: 32
-        }}>
-          <h2 style={{ margin: "0 0 24px", fontSize: 13, letterSpacing: 4, textTransform: "uppercase", color: "#6a9955" }}>
-            Enter Game Result
-          </h2>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 12, alignItems: "end", marginBottom: 20 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Home Team</span>
-              <input style={inputStyle} placeholder="e.g. Ohio State" value={form.homeTeam} onChange={e => set("homeTeam", e.target.value)} />
-            </label>
-            <div style={{ paddingBottom: 12, color: "#555", fontWeight: 900, fontSize: 18 }}>VS</div>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Away Team</span>
-              <input style={inputStyle} placeholder="e.g. Michigan" value={form.awayTeam} onChange={e => set("awayTeam", e.target.value)} />
-            </label>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Home Score</span>
-              <input style={inputStyle} type="number" placeholder="24" value={form.homeScore} onChange={e => set("homeScore", e.target.value)} />
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Away Score</span>
-              <input style={inputStyle} type="number" placeholder="17" value={form.awayScore} onChange={e => set("awayScore", e.target.value)} />
-            </label>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Sport</span>
-              <select style={inputStyle} value={form.sport} onChange={e => set("sport", e.target.value)}>
-                {SPORTS.map(s => <option key={s}>{s}</option>)}
-              </select>
-            </label>
-            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <span style={labelStyle}>Article Tone</span>
-              <select style={inputStyle} value={form.tone} onChange={e => set("tone", e.target.value)}>
-                {TONES.map(t => <option key={t}>{t}</option>)}
-              </select>
-            </label>
-          </div>
-
-          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 24 }}>
-            <span style={labelStyle}>Key Moments / Notes <span style={{ color: "#444", fontWeight: 400 }}>(optional)</span></span>
-            <textarea
-              style={{ ...inputStyle, minHeight: 72, resize: "vertical", lineHeight: 1.5 }}
-              placeholder="e.g. QB threw 3 TDs, game-winning field goal with 2 seconds left..."
-              value={form.keyMoments}
-              onChange={e => set("keyMoments", e.target.value)}
-            />
-          </label>
-
-          {error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 16 }}>{error}</div>}
-
-          <button
-            onClick={handleGenerate}
-            disabled={loading}
-            style={{
-              width: "100%",
-              padding: "16px",
-              background: loading ? "#1e2a1e" : "#6a9955",
-              color: loading ? "#3a5a3a" : "#fff",
-              border: "none",
-              borderRadius: 4,
-              fontSize: 13,
-              fontWeight: 700,
-              letterSpacing: 3,
-              textTransform: "uppercase",
-              cursor: loading ? "not-allowed" : "pointer",
-              transition: "all 0.2s",
-              fontFamily: "Georgia, serif"
-            }}
-          >
-            {loading ? "✦ Generating Article..." : "✦ Generate Article"}
-          </button>
-        </div>
-
-        {loading && (
-          <div style={{ textAlign: "center", padding: "40px 0", color: "#6a9955" }}>
-            <div style={{ fontSize: 13, letterSpacing: 4, textTransform: "uppercase", animation: "pulse 1.5s ease-in-out infinite" }}>
-              Writing your article...
-            </div>
-            <style>{`@keyframes pulse { 0%,100%{opacity:0.4} 50%{opacity:1} }`}</style>
-          </div>
-        )}
-
-        {article && !loading && (
-          <article style={{
-            background: "#0e1012",
-            border: "1px solid #1e2128",
-            borderRadius: 8,
-            overflow: "hidden",
-            animation: "fadeIn 0.5s ease",
-          }}>
-            <style>{`@keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }`}</style>
-
-            <div style={{ background: "#111318", padding: "32px 36px 24px", borderBottom: "1px solid #1e2128" }}>
-              <div style={{ fontSize: 10, letterSpacing: 5, color: "#6a9955", textTransform: "uppercase", marginBottom: 14 }}>
-                {form.sport} · College Athletics
-              </div>
-              <h2 style={{ margin: "0 0 16px", fontSize: "clamp(1.4rem, 4vw, 2rem)", lineHeight: 1.25, color: "#f0e8d8", fontWeight: 900 }}>
-                {article.headline}
-              </h2>
-              <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "#555" }}>
-                <span>Staff Reporter, Southern Sports Daily</span>
-                <span>·</span>
-                <span>{today}</span>
-                <span>·</span>
-                <span>AI-Generated</span>
-              </div>
-            </div>
-
-            <div style={{ padding: "28px 36px 36px" }}>
-              {article.body.split("\n\n").filter(p => p.trim()).map((para, i) => (
-                <p key={i} style={{
-                  margin: "0 0 20px",
-                  lineHeight: 1.85,
-                  fontSize: "1.05rem",
-                  color: i === 0 ? "#d8d0c0" : "#9a9080",
-                  fontWeight: i === 0 ? 500 : 400
-                }}>
-                  {para}
-                </p>
-              ))}
-            </div>
-
-            <div style={{
-              padding: "20px 36px",
-              borderTop: "1px solid #1e2128",
-              display: "flex", gap: 12, flexWrap: "wrap"
-            }}>
-              <button onClick={handleCopy} style={actionBtn}>
-                {copied ? "✓ Copied!" : "Copy Article"}
-              </button>
-              <button onClick={handleGenerate} style={{ ...actionBtn, background: "transparent", color: "#555", border: "1px solid #2a2a2a" }}>
-                Regenerate
-              </button>
-            </div>
-          </article>
-        )}
-
-        <footer style={{ marginTop: 48, textAlign: "center", color: "#333", fontSize: 11, letterSpacing: 2, textTransform: "uppercase" }}>
-          Southern Sports Daily · AI-Powered Sports Journalism · {new Date().getFullYear()}
-        </footer>
+function HeroCard({ article, onClick }) {
+  return (
+    <div
+      onClick={() => onClick(article)}
+      style={{
+        background: "linear-gradient(160deg, #1a1f2e 0%, #0d1117 100%)",
+        border: "1px solid #2a2f3e",
+        borderRadius: 8,
+        padding: "40px 44px",
+        cursor: "pointer",
+        transition: "border-color 0.2s, transform 0.15s",
+        position: "relative",
+        overflow: "hidden",
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = SPORT_COLORS[article.sport] || "#555"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2f3e"; e.currentTarget.style.transform = "translateY(0)"; }}
+    >
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: SPORT_COLORS[article.sport] || "#555" }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+        <SportTag sport={article.sport} />
+        <span style={{ fontSize: 12, color: "#6b7280" }}>{timeAgo(article.timestamp)}</span>
+        <span style={{ fontSize: 11, color: "#374151", background: "#1f2937", padding: "2px 8px", borderRadius: 2, letterSpacing: 1 }}>FEATURED</span>
+      </div>
+      <h2 style={{
+        fontSize: "clamp(1.5rem, 3.5vw, 2.2rem)", fontWeight: 900,
+        lineHeight: 1.2, margin: "0 0 16px", color: "#f3f4f6",
+        fontFamily: "'Georgia', serif",
+      }}>{article.headline}</h2>
+      <p style={{ color: "#9ca3af", lineHeight: 1.7, fontSize: "1rem", margin: "0 0 20px" }}>
+        {article.body.split("\n\n")[0].slice(0, 220)}…
+      </p>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 13, color: SPORT_COLORS[article.sport] || "#6b7280", fontWeight: 700 }}>Read full story →</span>
       </div>
     </div>
   );
 }
 
-const labelStyle = {
-  fontSize: 10,
-  letterSpacing: 3,
-  textTransform: "uppercase",
-  color: "#666",
-  fontFamily: "Georgia, serif"
-};
+function ArticleCard({ article, onClick }) {
+  return (
+    <div
+      onClick={() => onClick(article)}
+      style={{
+        background: "#0d1117",
+        border: "1px solid #1f2937",
+        borderRadius: 6,
+        padding: "22px",
+        cursor: "pointer",
+        transition: "border-color 0.2s, transform 0.15s",
+        display: "flex", flexDirection: "column", gap: 10,
+      }}
+      onMouseEnter={e => { e.currentTarget.style.borderColor = SPORT_COLORS[article.sport] || "#555"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = "#1f2937"; e.currentTarget.style.transform = "translateY(0)"; }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <SportTag sport={article.sport} />
+        <span style={{ fontSize: 11, color: "#4b5563" }}>{timeAgo(article.timestamp)}</span>
+      </div>
+      <h3 style={{
+        fontSize: "1rem", fontWeight: 800, lineHeight: 1.35,
+        margin: 0, color: "#e5e7eb", fontFamily: "'Georgia', serif",
+      }}>{article.headline}</h3>
+      <p style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, margin: 0 }}>
+        {article.body.split("\n\n")[0].slice(0, 120)}…
+      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+        <span style={{ fontSize: 12, color: "#374151" }}>{article.homeTeam} {article.homeScore} · {article.awayTeam} {article.awayScore}</span>
+        <span style={{ fontSize: 12, color: SPORT_COLORS[article.sport] || "#6b7280", fontWeight: 700 }}>Read →</span>
+      </div>
+    </div>
+  );
+}
 
-const inputStyle = {
-  background: "#0a0a0f",
-  border: "1px solid #2a2a2a",
-  borderRadius: 4,
-  padding: "10px 14px",
-  color: "#e8e0d0",
-  fontSize: "0.95rem",
-  fontFamily: "Georgia, serif",
-  outline: "none",
-  width: "100%",
-  boxSizing: "border-box",
-  transition: "border-color 0.2s"
-};
+function ArticleModal({ article, onClose }) {
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
 
-const actionBtn = {
-  padding: "10px 20px",
-  background: "#6a9955",
-  color: "#fff",
-  border: "none",
-  borderRadius: 4,
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: 2,
-  textTransform: "uppercase",
-  cursor: "pointer",
-  fontFamily: "Georgia, serif"
-};
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 100,
+        background: "rgba(0,0,0,0.85)", backdropFilter: "blur(4px)",
+        display: "flex", alignItems: "flex-start", justifyContent: "center",
+        padding: "40px 20px", overflowY: "auto",
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: "#0d1117", border: "1px solid #2a2f3e",
+        borderRadius: 10, maxWidth: 720, width: "100%",
+        overflow: "hidden", animation: "slideUp 0.25s ease",
+      }}>
+        <style>{`@keyframes slideUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }`}</style>
+        <div style={{ height: 4, background: SPORT_COLORS[article.sport] || "#555" }} />
+        <div style={{ padding: "32px 40px" }}>
+          <button onClick={onClose} style={{
+            background: "none", border: "1px solid #2a2f3e", color: "#6b7280",
+            borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontSize: 12,
+            marginBottom: 24, letterSpacing: 1,
+          }}>← Back</button>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
+            <SportTag sport={article.sport} />
+            <span style={{ fontSize: 12, color: "#4b5563" }}>{timeAgo(article.timestamp)}</span>
+          </div>
+          <h1 style={{
+            fontSize: "clamp(1.4rem, 4vw, 2rem)", fontWeight: 900,
+            lineHeight: 1.25, margin: "0 0 12px", color: "#f3f4f6",
+            fontFamily: "'Georgia', serif",
+          }}>{article.headline}</h1>
+          <div style={{ fontSize: 13, color: "#4b5563", marginBottom: 28, paddingBottom: 20, borderBottom: "1px solid #1f2937" }}>
+            Southern Sports Daily Staff · AI-Generated · {article.homeTeam} {article.homeScore}, {article.awayTeam} {article.awayScore}
+          </div>
+          {/* Ad */}
+          <div style={{
+            background: "#111827", border: "1px dashed #1f2937", borderRadius: 4,
+            height: 60, display: "flex", alignItems: "center", justifyContent: "center",
+            color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+            marginBottom: 28,
+          }}>[ Advertisement ]</div>
+          {article.body.split("\n\n").filter(p => p.trim()).map((para, i) => (
+            <p key={i} style={{
+              lineHeight: 1.85, fontSize: "1.05rem", margin: "0 0 20px",
+              color: i === 0 ? "#d1d5db" : "#9ca3af",
+              fontWeight: i === 0 ? 500 : 400,
+            }}>{para}</p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────────
+export default function App() {
+  const [articles, setArticles] = useState(SEED_ARTICLES);
+  const [activeFilter, setActiveFilter] = useState("All");
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [statusMsg, setStatusMsg] = useState("");
+  const [lastFetched, setLastFetched] = useState(null);
+
+  const filtered = activeFilter === "All"
+    ? articles
+    : articles.filter(a => a.sport === activeFilter);
+
+  const hero = filtered[0];
+  const rest = filtered.slice(1);
+
+  async function autoGenerate() {
+    if (generating) return;
+    setGenerating(true);
+    setStatusMsg("Fetching live scores...");
+
+    const sportsToCheck = ["Football", "Basketball", "Baseball"];
+    let newArticles = [];
+
+    for (const sport of sportsToCheck) {
+      const events = await fetchLiveScores(sport);
+      for (const event of events.slice(0, 2)) {
+        const comp = event.competitions?.[0];
+        const home = comp?.competitors?.find(c => c.homeAway === "home");
+        const away = comp?.competitors?.find(c => c.homeAway === "away");
+        if (!home || !away) continue;
+
+        const gameData = {
+          homeTeam: home.team?.shortDisplayName || home.team?.name,
+          awayTeam: away.team?.shortDisplayName || away.team?.name,
+          homeScore: home.score,
+          awayScore: away.score,
+        };
+
+        // Skip if already have an article for this matchup
+        const exists = articles.some(a =>
+          a.homeTeam === gameData.homeTeam && a.awayTeam === gameData.awayTeam
+        );
+        if (exists) continue;
+
+        setStatusMsg(`Writing article: ${gameData.awayTeam} @ ${gameData.homeTeam}...`);
+        try {
+          const { headline, body } = await generateArticle(gameData, sport);
+          newArticles.push({
+            id: `auto-${Date.now()}-${Math.random()}`,
+            headline, body, sport,
+            timestamp: new Date().toISOString(),
+            ...gameData,
+          });
+        } catch (e) {
+          console.error("Article gen failed", e);
+        }
+      }
+    }
+
+    if (newArticles.length > 0) {
+      setArticles(prev => [...newArticles, ...prev]);
+      setStatusMsg(`✓ ${newArticles.length} new article${newArticles.length > 1 ? "s" : ""} published!`);
+    } else {
+      setStatusMsg("No new completed games found right now. Try again later.");
+    }
+
+    setLastFetched(new Date());
+    setGenerating(false);
+    setTimeout(() => setStatusMsg(""), 5000);
+  }
+
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long", year: "numeric", month: "long", day: "numeric"
+  });
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#080c12", color: "#e5e7eb", fontFamily: "'Georgia', serif" }}>
+      <style>{`
+        * { box-sizing: border-box; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0d1117; }
+        ::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 3px; }
+        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;700;900&display=swap');
+      `}</style>
+
+      {/* Top bar */}
+      <div style={{ background: "#e8681a", padding: "6px 0", textAlign: "center" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#fff" }}>
+          🏈 Live Coverage · AI-Powered College Sports Journalism
+        </span>
+      </div>
+
+      {/* Header */}
+      <header style={{ background: "#0d1117", borderBottom: "1px solid #1f2937", padding: "0 24px" }}>
+        <div style={{ maxWidth: 1200, margin: "0 auto" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 0 16px" }}>
+            <div>
+              <div style={{ fontSize: 11, letterSpacing: 4, color: "#e8681a", textTransform: "uppercase", marginBottom: 6 }}>
+                {today}
+              </div>
+              <h1 style={{
+                margin: 0, fontSize: "clamp(1.8rem, 5vw, 2.8rem)",
+                fontWeight: 900, letterSpacing: "-0.02em", lineHeight: 1,
+                color: "#f9fafb", textTransform: "uppercase",
+                fontFamily: "'Oswald', 'Georgia', serif",
+              }}>
+                Southern Sports <span style={{ color: "#e8681a" }}>Daily</span>
+              </h1>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+              <button
+                onClick={autoGenerate}
+                disabled={generating}
+                style={{
+                  background: generating ? "#1f2937" : "#e8681a",
+                  color: generating ? "#6b7280" : "#fff",
+                  border: "none", borderRadius: 4, padding: "10px 20px",
+                  fontSize: 12, fontWeight: 800, letterSpacing: 2,
+                  textTransform: "uppercase", cursor: generating ? "not-allowed" : "pointer",
+                  transition: "all 0.2s",
+                }}
+              >
+                {generating ? "⟳ Generating..." : "⚡ Fetch Live Games"}
+              </button>
+              {lastFetched && (
+                <span style={{ fontSize: 11, color: "#4b5563" }}>
+                  Last updated: {lastFetched.toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Nav */}
+          <nav style={{ display: "flex", gap: 0, borderTop: "1px solid #1f2937" }}>
+            {SPORTS_NAV.map(sport => (
+              <button
+                key={sport}
+                onClick={() => setActiveFilter(sport)}
+                style={{
+                  background: "none", border: "none", padding: "12px 18px",
+                  fontSize: 12, fontWeight: 800, letterSpacing: 2,
+                  textTransform: "uppercase", cursor: "pointer",
+                  color: activeFilter === sport ? "#e8681a" : "#6b7280",
+                  borderBottom: activeFilter === sport ? "2px solid #e8681a" : "2px solid transparent",
+                  transition: "all 0.15s",
+                }}
+              >{sport}</button>
+            ))}
+          </nav>
+        </div>
+      </header>
+
+      {/* Status message */}
+      {statusMsg && (
+        <div style={{
+          background: "#111827", borderBottom: "1px solid #1f2937",
+          padding: "10px 24px", textAlign: "center",
+          fontSize: 13, color: "#e8681a", letterSpacing: 1,
+        }}>
+          {statusMsg}
+        </div>
+      )}
+
+      {/* Main content */}
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
+
+        {/* Top ad */}
+        <div style={{
+          background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
+          height: 90, display: "flex", alignItems: "center", justifyContent: "center",
+          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+          marginBottom: 32,
+        }}>[ Advertisement — 728×90 — Google AdSense goes here ]</div>
+
+        {filtered.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "80px 0", color: "#4b5563" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📰</div>
+            <p style={{ fontSize: 16 }}>No articles yet for this sport. Hit "Fetch Live Games" to generate some!</p>
+          </div>
+        ) : (
+          <>
+            {/* Hero */}
+            {hero && (
+              <div style={{ marginBottom: 32 }}>
+                <HeroCard article={hero} onClick={setSelectedArticle} />
+              </div>
+            )}
+
+            {/* Side ad + grid layout */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 240px", gap: 32, alignItems: "start" }}>
+              {/* Article grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+                {rest.map(article => (
+                  <ArticleCard key={article.id} article={article} onClick={setSelectedArticle} />
+                ))}
+              </div>
+
+              {/* Sidebar */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{
+                  background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
+                  height: 300, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+                  textAlign: "center", padding: 16,
+                }}>[ Sidebar Ad<br/>300×250 ]</div>
+
+                {/* Score ticker */}
+                <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 6, padding: 20 }}>
+                  <h4 style={{ margin: "0 0 14px", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "#e8681a" }}>
+                    Latest Scores
+                  </h4>
+                  {articles.slice(0, 6).map(a => (
+                    <div key={a.id} style={{
+                      padding: "10px 0", borderBottom: "1px solid #1f2937",
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb" }}>
+                          {a.homeTeam} {a.homeScore}
+                        </div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>
+                          {a.awayTeam} {a.awayScore}
+                        </div>
+                      </div>
+                      <SportTag sport={a.sport} />
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{
+                  background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
+                  height: 250, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+                  textAlign: "center", padding: 16,
+                }}>[ Sidebar Ad<br/>300×250 ]</div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Bottom ad */}
+        <div style={{
+          background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
+          height: 90, display: "flex", alignItems: "center", justifyContent: "center",
+          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+          marginTop: 40,
+        }}>[ Advertisement — 728×90 ]</div>
+      </main>
+
+      {/* Footer */}
+      <footer style={{
+        background: "#0d1117", borderTop: "1px solid #1f2937",
+        padding: "32px 24px", textAlign: "center",
+        color: "#374151", fontSize: 12, letterSpacing: 2, textTransform: "uppercase",
+      }}>
+        Southern Sports Daily · AI-Powered College Sports Coverage · {new Date().getFullYear()}
+        <div style={{ marginTop: 8, fontSize: 11, color: "#1f2937" }}>
+          Articles are AI-generated from live game data
+        </div>
+      </footer>
+
+      {/* Article modal */}
+      {selectedArticle && (
+        <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(null)} />
+      )}
+    </div>
+  );
+}
