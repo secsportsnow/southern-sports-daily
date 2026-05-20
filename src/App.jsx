@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 
 // ─── CONFIG ──────────────────────────────────────────────────────
-const ADMIN_PASSWORD = "Yuqhrk3z3!!!"; // Change this to your own password!
+const ADMIN_PASSWORD = "ssd-admin-2024"; // Change this to your own password!
 
 const SPORT_COLORS = {
   Football: "#e8681a",
