@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 
-// ─── SPORT COLORS ────────────────────────────────────────────────
+// ─── CONFIG ──────────────────────────────────────────────────────
+const ADMIN_PASSWORD = "Yuqhrk3z3!!!"; // Change this to your own password!
+
 const SPORT_COLORS = {
   Football: "#e8681a",
   Basketball: "#c0392b",
@@ -12,7 +14,7 @@ const SPORT_COLORS = {
 
 const SPORTS_NAV = ["All", "Football", "Basketball", "Baseball", "Soccer", "Hockey"];
 
-// ─── SAMPLE SEED ARTICLES (shown before any AI articles generate) ─
+// ─── SEED ARTICLES ───────────────────────────────────────────────
 const SEED_ARTICLES = [
   {
     id: "seed-1",
@@ -56,7 +58,7 @@ const SEED_ARTICLES = [
   },
 ];
 
-// ─── FETCH LIVE SCORES via fetch_sports_data approach (ESPN public API) ─────
+// ─── API HELPERS ─────────────────────────────────────────────────
 async function fetchLiveScores(sport) {
   const sportMap = {
     Football: "football/college-football",
@@ -66,19 +68,12 @@ async function fetchLiveScores(sport) {
   };
   const endpoint = sportMap[sport] || "football/college-football";
   try {
-    const res = await fetch(
-      `https://site.api.espn.com/apis/site/v2/sports/${endpoint}/scoreboard`
-    );
+    const res = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${endpoint}/scoreboard`);
     const data = await res.json();
-    return (data.events || []).filter(
-      (e) => e.status?.type?.completed === true
-    ).slice(0, 5);
-  } catch {
-    return [];
-  }
+    return (data.events || []).filter(e => e.status?.type?.completed === true).slice(0, 5);
+  } catch { return []; }
 }
 
-// ─── GENERATE ARTICLE VIA CLAUDE API ─────────────────────────────
 async function generateArticle(gameData, sport) {
   const { homeTeam, awayTeam, homeScore, awayScore } = gameData;
   const winner = parseInt(homeScore) > parseInt(awayScore) ? homeTeam : awayTeam;
@@ -108,11 +103,9 @@ Write:
     }),
   });
   const data = await res.json();
-  const text = data.content?.map((b) => b.text || "").join("") || "";
+  const text = data.content?.map(b => b.text || "").join("") || "";
   const headlineMatch = text.match(/HEADLINE:\s*(.+)/);
-  const headline = headlineMatch
-    ? headlineMatch[1].trim()
-    : `${winner} Defeats ${loser} ${winScore}–${lossScore}`;
+  const headline = headlineMatch ? headlineMatch[1].trim() : `${winner} Defeats ${loser} ${winScore}–${lossScore}`;
   const body = text.replace(/HEADLINE:\s*.+\n?/, "").trim();
   return { headline, body };
 }
@@ -126,7 +119,6 @@ function timeAgo(iso) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// ─── COMPONENTS ──────────────────────────────────────────────────
 function SportTag({ sport }) {
   return (
     <span style={{
@@ -138,19 +130,129 @@ function SportTag({ sport }) {
   );
 }
 
+// ─── ADMIN LOGIN PAGE ─────────────────────────────────────────────
+function AdminLogin({ onLogin }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState("");
+
+  const handleLogin = () => {
+    if (pw === ADMIN_PASSWORD) {
+      sessionStorage.setItem("ssd_admin", "true");
+      onLogin();
+    } else {
+      setError("Incorrect password.");
+      setPw("");
+    }
+  };
+
+  return (
+    <div style={{
+      minHeight: "100vh", background: "#080c12",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "'Georgia', serif",
+    }}>
+      <div style={{
+        background: "#0d1117", border: "1px solid #1f2937",
+        borderRadius: 8, padding: "48px 40px", width: "100%", maxWidth: 400,
+        textAlign: "center",
+      }}>
+        <div style={{ fontSize: 11, letterSpacing: 4, color: "#e8681a", textTransform: "uppercase", marginBottom: 12 }}>
+          Admin Access
+        </div>
+        <h1 style={{
+          fontSize: "1.8rem", fontWeight: 900, color: "#f9fafb",
+          margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "-0.02em",
+        }}>Southern Sports<br /><span style={{ color: "#e8681a" }}>Daily</span></h1>
+        <p style={{ color: "#4b5563", fontSize: 13, marginBottom: 32 }}>
+          Staff login — not for public access
+        </p>
+        <input
+          type="password"
+          placeholder="Enter password"
+          value={pw}
+          onChange={e => { setPw(e.target.value); setError(""); }}
+          onKeyDown={e => e.key === "Enter" && handleLogin()}
+          style={{
+            width: "100%", padding: "12px 16px",
+            background: "#080c12", border: "1px solid #2a2f3e",
+            borderRadius: 4, color: "#f3f4f6", fontSize: "1rem",
+            fontFamily: "'Georgia', serif", marginBottom: 12, outline: "none",
+          }}
+        />
+        {error && <div style={{ color: "#c0392b", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+        <button
+          onClick={handleLogin}
+          style={{
+            width: "100%", padding: "13px",
+            background: "#e8681a", color: "#fff", border: "none",
+            borderRadius: 4, fontSize: 13, fontWeight: 800,
+            letterSpacing: 2, textTransform: "uppercase",
+            cursor: "pointer", fontFamily: "'Georgia', serif",
+          }}
+        >Login →</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADMIN PANEL (overlaid on homepage) ──────────────────────────
+function AdminBar({ onGenerate, generating, statusMsg, lastFetched, onLogout }) {
+  return (
+    <div style={{
+      background: "#1a0a00", borderBottom: "2px solid #e8681a",
+      padding: "10px 24px", display: "flex",
+      alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <span style={{ fontSize: 11, color: "#e8681a", fontWeight: 800, letterSpacing: 2, textTransform: "uppercase" }}>
+          🔒 Admin Mode
+        </span>
+        {statusMsg && (
+          <span style={{ fontSize: 12, color: "#f59e0b" }}>{statusMsg}</span>
+        )}
+        {lastFetched && !statusMsg && (
+          <span style={{ fontSize: 11, color: "#4b5563" }}>
+            Last updated: {lastFetched.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <button
+          onClick={onGenerate}
+          disabled={generating}
+          style={{
+            background: generating ? "#1f2937" : "#e8681a",
+            color: generating ? "#6b7280" : "#fff",
+            border: "none", borderRadius: 4, padding: "9px 18px",
+            fontSize: 12, fontWeight: 800, letterSpacing: 2,
+            textTransform: "uppercase", cursor: generating ? "not-allowed" : "pointer",
+          }}
+        >
+          {generating ? "⟳ Generating..." : "⚡ Fetch Live Games"}
+        </button>
+        <button
+          onClick={onLogout}
+          style={{
+            background: "none", border: "1px solid #374151", color: "#6b7280",
+            borderRadius: 4, padding: "9px 14px", fontSize: 12,
+            cursor: "pointer", letterSpacing: 1,
+          }}
+        >Logout</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── ARTICLE COMPONENTS ──────────────────────────────────────────
 function HeroCard({ article, onClick }) {
   return (
     <div
       onClick={() => onClick(article)}
       style={{
         background: "linear-gradient(160deg, #1a1f2e 0%, #0d1117 100%)",
-        border: "1px solid #2a2f3e",
-        borderRadius: 8,
-        padding: "40px 44px",
-        cursor: "pointer",
-        transition: "border-color 0.2s, transform 0.15s",
-        position: "relative",
-        overflow: "hidden",
+        border: "1px solid #2a2f3e", borderRadius: 8, padding: "40px 44px",
+        cursor: "pointer", transition: "border-color 0.2s, transform 0.15s",
+        position: "relative", overflow: "hidden",
       }}
       onMouseEnter={e => { e.currentTarget.style.borderColor = SPORT_COLORS[article.sport] || "#555"; e.currentTarget.style.transform = "translateY(-2px)"; }}
       onMouseLeave={e => { e.currentTarget.style.borderColor = "#2a2f3e"; e.currentTarget.style.transform = "translateY(0)"; }}
@@ -169,9 +271,7 @@ function HeroCard({ article, onClick }) {
       <p style={{ color: "#9ca3af", lineHeight: 1.7, fontSize: "1rem", margin: "0 0 20px" }}>
         {article.body.split("\n\n")[0].slice(0, 220)}…
       </p>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 13, color: SPORT_COLORS[article.sport] || "#6b7280", fontWeight: 700 }}>Read full story →</span>
-      </div>
+      <span style={{ fontSize: 13, color: SPORT_COLORS[article.sport] || "#6b7280", fontWeight: 700 }}>Read full story →</span>
     </div>
   );
 }
@@ -181,11 +281,8 @@ function ArticleCard({ article, onClick }) {
     <div
       onClick={() => onClick(article)}
       style={{
-        background: "#0d1117",
-        border: "1px solid #1f2937",
-        borderRadius: 6,
-        padding: "22px",
-        cursor: "pointer",
+        background: "#0d1117", border: "1px solid #1f2937", borderRadius: 6,
+        padding: "22px", cursor: "pointer",
         transition: "border-color 0.2s, transform 0.15s",
         display: "flex", flexDirection: "column", gap: 10,
       }}
@@ -196,10 +293,9 @@ function ArticleCard({ article, onClick }) {
         <SportTag sport={article.sport} />
         <span style={{ fontSize: 11, color: "#4b5563" }}>{timeAgo(article.timestamp)}</span>
       </div>
-      <h3 style={{
-        fontSize: "1rem", fontWeight: 800, lineHeight: 1.35,
-        margin: 0, color: "#e5e7eb", fontFamily: "'Georgia', serif",
-      }}>{article.headline}</h3>
+      <h3 style={{ fontSize: "1rem", fontWeight: 800, lineHeight: 1.35, margin: 0, color: "#e5e7eb", fontFamily: "'Georgia', serif" }}>
+        {article.headline}
+      </h3>
       <p style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.6, margin: 0 }}>
         {article.body.split("\n\n")[0].slice(0, 120)}…
       </p>
@@ -213,7 +309,7 @@ function ArticleCard({ article, onClick }) {
 
 function ArticleModal({ article, onClose }) {
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    const handler = e => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
@@ -238,8 +334,8 @@ function ArticleModal({ article, onClose }) {
         <div style={{ padding: "32px 40px" }}>
           <button onClick={onClose} style={{
             background: "none", border: "1px solid #2a2f3e", color: "#6b7280",
-            borderRadius: 4, padding: "6px 14px", cursor: "pointer", fontSize: 12,
-            marginBottom: 24, letterSpacing: 1,
+            borderRadius: 4, padding: "6px 14px", cursor: "pointer",
+            fontSize: 12, marginBottom: 24, letterSpacing: 1,
           }}>← Back</button>
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 16 }}>
             <SportTag sport={article.sport} />
@@ -253,12 +349,10 @@ function ArticleModal({ article, onClose }) {
           <div style={{ fontSize: 13, color: "#4b5563", marginBottom: 28, paddingBottom: 20, borderBottom: "1px solid #1f2937" }}>
             Southern Sports Daily Staff · AI-Generated · {article.homeTeam} {article.homeScore}, {article.awayTeam} {article.awayScore}
           </div>
-          {/* Ad */}
           <div style={{
             background: "#111827", border: "1px dashed #1f2937", borderRadius: 4,
             height: 60, display: "flex", alignItems: "center", justifyContent: "center",
-            color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-            marginBottom: 28,
+            color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 28,
           }}>[ Advertisement ]</div>
           {article.body.split("\n\n").filter(p => p.trim()).map((para, i) => (
             <p key={i} style={{
@@ -275,6 +369,12 @@ function ArticleModal({ article, onClose }) {
 
 // ─── MAIN APP ────────────────────────────────────────────────────
 export default function App() {
+  const isAdminRoute = window.location.pathname === "/admin";
+  const [isAdmin, setIsAdmin] = useState(
+    isAdminRoute && sessionStorage.getItem("ssd_admin") === "true"
+  );
+  const [showLogin, setShowLogin] = useState(isAdminRoute && !isAdmin);
+
   const [articles, setArticles] = useState(SEED_ARTICLES);
   const [activeFilter, setActiveFilter] = useState("All");
   const [selectedArticle, setSelectedArticle] = useState(null);
@@ -282,10 +382,14 @@ export default function App() {
   const [statusMsg, setStatusMsg] = useState("");
   const [lastFetched, setLastFetched] = useState(null);
 
-  const filtered = activeFilter === "All"
-    ? articles
-    : articles.filter(a => a.sport === activeFilter);
+  // Handle /admin route
+  useEffect(() => {
+    if (isAdminRoute && !sessionStorage.getItem("ssd_admin")) {
+      setShowLogin(true);
+    }
+  }, []);
 
+  const filtered = activeFilter === "All" ? articles : articles.filter(a => a.sport === activeFilter);
   const hero = filtered[0];
   const rest = filtered.slice(1);
 
@@ -293,7 +397,6 @@ export default function App() {
     if (generating) return;
     setGenerating(true);
     setStatusMsg("Fetching live scores...");
-
     const sportsToCheck = ["Football", "Basketball", "Baseball"];
     let newArticles = [];
 
@@ -304,21 +407,15 @@ export default function App() {
         const home = comp?.competitors?.find(c => c.homeAway === "home");
         const away = comp?.competitors?.find(c => c.homeAway === "away");
         if (!home || !away) continue;
-
         const gameData = {
           homeTeam: home.team?.shortDisplayName || home.team?.name,
           awayTeam: away.team?.shortDisplayName || away.team?.name,
           homeScore: home.score,
           awayScore: away.score,
         };
-
-        // Skip if already have an article for this matchup
-        const exists = articles.some(a =>
-          a.homeTeam === gameData.homeTeam && a.awayTeam === gameData.awayTeam
-        );
+        const exists = articles.some(a => a.homeTeam === gameData.homeTeam && a.awayTeam === gameData.awayTeam);
         if (exists) continue;
-
-        setStatusMsg(`Writing article: ${gameData.awayTeam} @ ${gameData.homeTeam}...`);
+        setStatusMsg(`Writing: ${gameData.awayTeam} @ ${gameData.homeTeam}...`);
         try {
           const { headline, body } = await generateArticle(gameData, sport);
           newArticles.push({
@@ -327,9 +424,7 @@ export default function App() {
             timestamp: new Date().toISOString(),
             ...gameData,
           });
-        } catch (e) {
-          console.error("Article gen failed", e);
-        }
+        } catch (e) { console.error(e); }
       }
     }
 
@@ -337,29 +432,42 @@ export default function App() {
       setArticles(prev => [...newArticles, ...prev]);
       setStatusMsg(`✓ ${newArticles.length} new article${newArticles.length > 1 ? "s" : ""} published!`);
     } else {
-      setStatusMsg("No new completed games found right now. Try again later.");
+      setStatusMsg("No new completed games found. Try again later.");
     }
-
     setLastFetched(new Date());
     setGenerating(false);
     setTimeout(() => setStatusMsg(""), 5000);
   }
 
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long", year: "numeric", month: "long", day: "numeric"
-  });
+  function handleLogout() {
+    sessionStorage.removeItem("ssd_admin");
+    setIsAdmin(false);
+    setShowLogin(false);
+    window.history.pushState({}, "", "/");
+  }
+
+  const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+  if (showLogin && !isAdmin) {
+    return <AdminLogin onLogin={() => { setIsAdmin(true); setShowLogin(false); }} />;
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "#080c12", color: "#e5e7eb", fontFamily: "'Georgia', serif" }}>
-      <style>{`
-        * { box-sizing: border-box; }
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: #0d1117; }
-        ::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 3px; }
-        @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;700;900&display=swap');
-      `}</style>
+      <style>{`* { box-sizing: border-box; }`}</style>
 
-      {/* Top bar */}
+      {/* Admin bar — only visible when logged in */}
+      {isAdmin && (
+        <AdminBar
+          onGenerate={autoGenerate}
+          generating={generating}
+          statusMsg={statusMsg}
+          lastFetched={lastFetched}
+          onLogout={handleLogout}
+        />
+      )}
+
+      {/* Top ticker */}
       <div style={{ background: "#e8681a", padding: "6px 0", textAlign: "center" }}>
         <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: 3, textTransform: "uppercase", color: "#fff" }}>
           🏈 Live Coverage · AI-Powered College Sports Journalism
@@ -369,176 +477,92 @@ export default function App() {
       {/* Header */}
       <header style={{ background: "#0d1117", borderBottom: "1px solid #1f2937", padding: "0 24px" }}>
         <div style={{ maxWidth: 1200, margin: "0 auto" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "20px 0 16px" }}>
-            <div>
-              <div style={{ fontSize: 11, letterSpacing: 4, color: "#e8681a", textTransform: "uppercase", marginBottom: 6 }}>
-                {today}
-              </div>
-              <h1 style={{
-                margin: 0, fontSize: "clamp(1.8rem, 5vw, 2.8rem)",
-                fontWeight: 900, letterSpacing: "-0.02em", lineHeight: 1,
-                color: "#f9fafb", textTransform: "uppercase",
-                fontFamily: "'Oswald', 'Georgia', serif",
-              }}>
-                Southern Sports <span style={{ color: "#e8681a" }}>Daily</span>
-              </h1>
+          <div style={{ padding: "20px 0 16px" }}>
+            <div style={{ fontSize: 11, letterSpacing: 4, color: "#e8681a", textTransform: "uppercase", marginBottom: 6 }}>
+              {today}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-              <button
-                onClick={autoGenerate}
-                disabled={generating}
-                style={{
-                  background: generating ? "#1f2937" : "#e8681a",
-                  color: generating ? "#6b7280" : "#fff",
-                  border: "none", borderRadius: 4, padding: "10px 20px",
-                  fontSize: 12, fontWeight: 800, letterSpacing: 2,
-                  textTransform: "uppercase", cursor: generating ? "not-allowed" : "pointer",
-                  transition: "all 0.2s",
-                }}
-              >
-                {generating ? "⟳ Generating..." : "⚡ Fetch Live Games"}
-              </button>
-              {lastFetched && (
-                <span style={{ fontSize: 11, color: "#4b5563" }}>
-                  Last updated: {lastFetched.toLocaleTimeString()}
-                </span>
-              )}
-            </div>
+            <h1 style={{
+              margin: 0, fontSize: "clamp(1.8rem, 5vw, 2.8rem)",
+              fontWeight: 900, letterSpacing: "-0.02em", lineHeight: 1,
+              color: "#f9fafb", textTransform: "uppercase",
+            }}>
+              Southern Sports <span style={{ color: "#e8681a" }}>Daily</span>
+            </h1>
           </div>
-
-          {/* Nav */}
           <nav style={{ display: "flex", gap: 0, borderTop: "1px solid #1f2937" }}>
             {SPORTS_NAV.map(sport => (
-              <button
-                key={sport}
-                onClick={() => setActiveFilter(sport)}
-                style={{
-                  background: "none", border: "none", padding: "12px 18px",
-                  fontSize: 12, fontWeight: 800, letterSpacing: 2,
-                  textTransform: "uppercase", cursor: "pointer",
-                  color: activeFilter === sport ? "#e8681a" : "#6b7280",
-                  borderBottom: activeFilter === sport ? "2px solid #e8681a" : "2px solid transparent",
-                  transition: "all 0.15s",
-                }}
-              >{sport}</button>
+              <button key={sport} onClick={() => setActiveFilter(sport)} style={{
+                background: "none", border: "none", padding: "12px 18px",
+                fontSize: 12, fontWeight: 800, letterSpacing: 2, textTransform: "uppercase",
+                cursor: "pointer",
+                color: activeFilter === sport ? "#e8681a" : "#6b7280",
+                borderBottom: activeFilter === sport ? "2px solid #e8681a" : "2px solid transparent",
+                transition: "all 0.15s",
+              }}>{sport}</button>
             ))}
           </nav>
         </div>
       </header>
 
-      {/* Status message */}
-      {statusMsg && (
-        <div style={{
-          background: "#111827", borderBottom: "1px solid #1f2937",
-          padding: "10px 24px", textAlign: "center",
-          fontSize: 13, color: "#e8681a", letterSpacing: 1,
-        }}>
-          {statusMsg}
-        </div>
-      )}
-
-      {/* Main content */}
+      {/* Main */}
       <main style={{ maxWidth: 1200, margin: "0 auto", padding: "32px 24px" }}>
-
-        {/* Top ad */}
         <div style={{
           background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
           height: 90, display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-          marginBottom: 32,
-        }}>[ Advertisement — 728×90 — Google AdSense goes here ]</div>
+          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginBottom: 32,
+        }}>[ Advertisement — 728×90 ]</div>
 
         {filtered.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 0", color: "#4b5563" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>📰</div>
-            <p style={{ fontSize: 16 }}>No articles yet for this sport. Hit "Fetch Live Games" to generate some!</p>
+            <p>No articles yet for this sport.</p>
           </div>
         ) : (
           <>
-            {/* Hero */}
-            {hero && (
-              <div style={{ marginBottom: 32 }}>
-                <HeroCard article={hero} onClick={setSelectedArticle} />
-              </div>
-            )}
-
-            {/* Side ad + grid layout */}
+            {hero && <div style={{ marginBottom: 32 }}><HeroCard article={hero} onClick={setSelectedArticle} /></div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 240px", gap: 32, alignItems: "start" }}>
-              {/* Article grid */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-                {rest.map(article => (
-                  <ArticleCard key={article.id} article={article} onClick={setSelectedArticle} />
-                ))}
+                {rest.map(article => <ArticleCard key={article.id} article={article} onClick={setSelectedArticle} />)}
               </div>
-
-              {/* Sidebar */}
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 <div style={{
                   background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
                   height: 300, display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-                  textAlign: "center", padding: 16,
-                }}>[ Sidebar Ad<br/>300×250 ]</div>
-
-                {/* Score ticker */}
+                  color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", textAlign: "center", padding: 16,
+                }}>[ Sidebar Ad<br />300×250 ]</div>
                 <div style={{ background: "#0d1117", border: "1px solid #1f2937", borderRadius: 6, padding: 20 }}>
-                  <h4 style={{ margin: "0 0 14px", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "#e8681a" }}>
-                    Latest Scores
-                  </h4>
+                  <h4 style={{ margin: "0 0 14px", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", color: "#e8681a" }}>Latest Scores</h4>
                   {articles.slice(0, 6).map(a => (
-                    <div key={a.id} style={{
-                      padding: "10px 0", borderBottom: "1px solid #1f2937",
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                    }}>
+                    <div key={a.id} style={{ padding: "10px 0", borderBottom: "1px solid #1f2937", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb" }}>
-                          {a.homeTeam} {a.homeScore}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#6b7280" }}>
-                          {a.awayTeam} {a.awayScore}
-                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb" }}>{a.homeTeam} {a.homeScore}</div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>{a.awayTeam} {a.awayScore}</div>
                       </div>
                       <SportTag sport={a.sport} />
                     </div>
                   ))}
                 </div>
-
-                <div style={{
-                  background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
-                  height: 250, display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-                  textAlign: "center", padding: 16,
-                }}>[ Sidebar Ad<br/>300×250 ]</div>
               </div>
             </div>
           </>
         )}
 
-        {/* Bottom ad */}
         <div style={{
           background: "#0d1117", border: "1px dashed #1f2937", borderRadius: 4,
           height: 90, display: "flex", alignItems: "center", justifyContent: "center",
-          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-          marginTop: 40,
+          color: "#1f2937", fontSize: 11, letterSpacing: 2, textTransform: "uppercase", marginTop: 40,
         }}>[ Advertisement — 728×90 ]</div>
       </main>
 
-      {/* Footer */}
       <footer style={{
         background: "#0d1117", borderTop: "1px solid #1f2937",
         padding: "32px 24px", textAlign: "center",
         color: "#374151", fontSize: 12, letterSpacing: 2, textTransform: "uppercase",
       }}>
         Southern Sports Daily · AI-Powered College Sports Coverage · {new Date().getFullYear()}
-        <div style={{ marginTop: 8, fontSize: 11, color: "#1f2937" }}>
-          Articles are AI-generated from live game data
-        </div>
       </footer>
 
-      {/* Article modal */}
-      {selectedArticle && (
-        <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(null)} />
-      )}
+      {selectedArticle && <ArticleModal article={selectedArticle} onClose={() => setSelectedArticle(null)} />}
     </div>
   );
 }
